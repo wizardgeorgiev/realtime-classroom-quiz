@@ -303,26 +303,21 @@ export default function TeacherScreen({ roomId: initialRoomId, selections = [] }
                     alignItems: "center"
                 }}
             >
-                <Title level={3} style={{ color: "white", margin: 0 }}>
-                    Quiz
-                </Title>
-                <Space>
+                <Space align="center" size={10}>
                     <LivePulseIcon />
+                    <Title level={3} style={{ color: "white", margin: 0, lineHeight: 1 }}>
+                        Quiz
+                    </Title>
+                </Space>
+                <Space align="center">
                     <Tag
-                    
                         color="green"
                         style={{
                             fontSize: 14,
-                            padding: "4px 10px",
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 8
+                            padding: "4px 10px"
                         }}
                     >
-                        
-                        <span>
-                            {studentCount} Student{studentCount !== 1 ? "s" : ""} Connected
-                        </span>
+                        {studentCount} Student{studentCount !== 1 ? "s" : ""} Connected
                     </Tag>
                     <Button
                         danger
