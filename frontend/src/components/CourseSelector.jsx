@@ -5,7 +5,6 @@ import {
     Button,
     Card,
     Divider,
-    Radio,
     Select,
     Space,
     Spin,
@@ -16,8 +15,9 @@ import {
 const { Title, Text } = Typography;
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const ALL_TOPICS_VALUE = "__ALL_TOPICS__";
 
-function getTopicQuestionCount(course, topicIndex, mode) {
+function getTopicQuestionCount(course, topicIndex) {
     if (!course || !Array.isArray(course.topics) || course.topics.length === 0) {
         return 0;
     }
@@ -25,11 +25,6 @@ function getTopicQuestionCount(course, topicIndex, mode) {
         0,
         Math.min(Number(topicIndex) || 0, course.topics.length - 1)
     );
-    if (mode === "cumulative") {
-        return course.topics
-            .slice(0, safeIdx + 1)
-            .reduce((sum, topic) => sum + (topic.questionCount || 0), 0);
-    }
     return course.topics[safeIdx]?.questionCount || 0;
 }
 
@@ -42,11 +37,7 @@ function formatSelectionLabel(course, selection) {
     );
     const topic = topics[safeIdx];
     const topicLabel = topic ? topic.title : `Topic ${safeIdx + 1}`;
-    const scopeLabel =
-        selection.mode === "cumulative" && safeIdx > 0
-            ? `${topicLabel} + Previous (${safeIdx + 1})`
-            : topicLabel;
-    return `${course.title} — ${scopeLabel}`;
+    return `${course.title} — ${topicLabel}`;
 }
 
 export default function CourseSelector({ onStartQuiz }) {
@@ -57,9 +48,8 @@ export default function CourseSelector({ onStartQuiz }) {
     const [error, setError] = useState(null);
 
     const [addedSelections, setAddedSelections] = useState([]);
-    const [currentCourseId, setCurrentCourseId] = useState("");
-    const [currentTopicIndex, setCurrentTopicIndex] = useState(0);
-    const [currentMode, setCurrentMode] = useState("single");
+    const [currentCourseId, setCurrentCourseId] = useState(undefined);
+    const [selectedTopicIndices, setSelectedTopicIndices] = useState([]);
 
     useEffect(() => {
         let active = true;
@@ -76,9 +66,6 @@ export default function CourseSelector({ onStartQuiz }) {
                 const list = Array.isArray(data.courses) ? data.courses : [];
                 if (active) {
                     setCourses(list);
-                    if (list.length > 0) {
-                        setCurrentCourseId((prev) => prev || list[0].id);
-                    }
                 }
             } catch (err) {
                 if (active) {
@@ -97,45 +84,92 @@ export default function CourseSelector({ onStartQuiz }) {
         };
     }, []);
 
-    const currentCourse =
-        courses.find((course) => course.id === currentCourseId) || courses[0] || null;
-
-    const currentPreviewCount = useMemo(
-        () => getTopicQuestionCount(currentCourse, currentTopicIndex, currentMode),
-        [currentCourse, currentTopicIndex, currentMode]
+    const currentCourse = useMemo(
+        () => courses.find((course) => course.id === currentCourseId) || null,
+        [courses, currentCourseId]
     );
+
+    const topics = currentCourse?.topics || [];
+
+    const allTopicIndices = useMemo(
+        () => topics.map((_, idx) => idx),
+        [topics]
+    );
+
+    const isAllSelected =
+        topics.length > 0 && selectedTopicIndices.length === topics.length;
+
+    const dropdownValue = useMemo(() => {
+        if (isAllSelected) {
+            return [ALL_TOPICS_VALUE, ...selectedTopicIndices];
+        }
+        return selectedTopicIndices;
+    }, [isAllSelected, selectedTopicIndices]);
+
+    const currentPreviewCount = useMemo(() => {
+        if (!currentCourse || selectedTopicIndices.length === 0) return 0;
+        return selectedTopicIndices.reduce(
+            (sum, idx) => sum + getTopicQuestionCount(currentCourse, idx),
+            0
+        );
+    }, [currentCourse, selectedTopicIndices]);
 
     const totalEstimatedQuestions = useMemo(() => {
         return addedSelections.reduce((sum, sel) => {
             const course = courses.find((c) => c.id === sel.courseId);
-            return sum + getTopicQuestionCount(course, sel.topicIndex, sel.mode);
+            return sum + getTopicQuestionCount(course, sel.topicIndex);
         }, 0);
     }, [addedSelections, courses]);
 
     const handleCourseChange = (courseId) => {
         setCurrentCourseId(courseId);
-        setCurrentTopicIndex(0);
-        setCurrentMode("single");
+        setSelectedTopicIndices([]);
     };
 
-    const handleTopicChange = (topicIndex) => {
-        setCurrentTopicIndex(topicIndex);
-        if (topicIndex === 0) {
-            setCurrentMode("single");
+    const handleTopicsChange = (values) => {
+        const hasAllNow = values.includes(ALL_TOPICS_VALUE);
+        const numericIndices = values.filter((v) => typeof v === "number");
+
+        if (hasAllNow && !isAllSelected) {
+            setSelectedTopicIndices(allTopicIndices);
+            return;
         }
+
+        if (!hasAllNow && isAllSelected) {
+            setSelectedTopicIndices([]);
+            return;
+        }
+
+        setSelectedTopicIndices(numericIndices.sort((a, b) => a - b));
     };
 
-    const handleAddCourse = () => {
-        if (!currentCourse || currentPreviewCount === 0) return;
+    const handleAddTopics = () => {
+        if (!currentCourse || selectedTopicIndices.length === 0) return;
 
-        setAddedSelections((prev) => [
-            ...prev,
-            {
-                courseId: currentCourse.id,
-                topicIndex: currentTopicIndex,
-                mode: currentMode
+        setAddedSelections((prev) => {
+            const existingKeys = new Set(
+                prev.map((item) => `${item.courseId}:${item.topicIndex}`)
+            );
+            const next = [...prev];
+
+            for (const topicIndex of selectedTopicIndices) {
+                const qCount = getTopicQuestionCount(currentCourse, topicIndex);
+                const key = `${currentCourse.id}:${topicIndex}`;
+                if (qCount > 0 && !existingKeys.has(key)) {
+                    existingKeys.add(key);
+                    next.push({
+                        courseId: currentCourse.id,
+                        topicIndex,
+                        mode: "single"
+                    });
+                }
             }
-        ]);
+
+            return next;
+        });
+
+        setSelectedTopicIndices([]);
+        setCurrentCourseId(undefined);
     };
 
     const handleRemoveSelection = (indexToRemove) => {
@@ -156,6 +190,62 @@ export default function CourseSelector({ onStartQuiz }) {
             });
         }
     };
+
+    const totalCourseQuestions = useMemo(
+        () =>
+            topics.reduce((sum, topic) => sum + (topic.questionCount || 0), 0),
+        [topics]
+    );
+
+    const topicDropdownOptions = useMemo(() => {
+        if (!currentCourse) return [];
+        return [
+            {
+                value: ALL_TOPICS_VALUE,
+                searchLabel: "All Topics",
+                label: (
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8,
+                            fontWeight: 600
+                        }}
+                    >
+                        <span>All Topics ({topics.length})</span>
+                        <Tag color="geekblue" style={{ margin: 0 }}>
+                            {totalCourseQuestions} Q
+                        </Tag>
+                    </div>
+                )
+            },
+            ...topics.map((topic, idx) => ({
+                value: idx,
+                searchLabel: `${idx + 1}. ${topic.title}`,
+                label: (
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8
+                        }}
+                    >
+                        <span>
+                            {idx + 1}. {topic.title}
+                        </span>
+                        <Tag
+                            color={(topic.questionCount || 0) > 0 ? "blue" : "default"}
+                            style={{ margin: 0 }}
+                        >
+                            {topic.questionCount || 0} Q
+                        </Tag>
+                    </div>
+                )
+            }))
+        ];
+    }, [currentCourse, topics, totalCourseQuestions]);
 
     return (
         <div
@@ -183,7 +273,7 @@ export default function CourseSelector({ onStartQuiz }) {
                         message="Unable to Load Courses"
                         description={error}
                     />
-                ) : !currentCourse ? (
+                ) : courses.length === 0 ? (
                     <Alert
                         type="warning"
                         showIcon
@@ -197,18 +287,22 @@ export default function CourseSelector({ onStartQuiz }) {
                                 Build Classroom Quiz
                             </Title>
                             <Text type="secondary">
-                                Configure a course and topic, click Add Course, then click Start Big Screen.
+                                Select a course first, then choose one or more topics to add to your session.
                             </Text>
                         </div>
 
-                        {/* Step 1: Course */}
+                        {/* Step 1: Course Selector */}
                         <div>
                             <Text strong style={{ display: "block", marginBottom: 8 }}>
                                 1. Select Course
                             </Text>
                             <Select
                                 size="large"
-                                value={currentCourse.id}
+                                showSearch
+                                allowClear
+                                optionFilterProp="label"
+                                placeholder="Choose a course..."
+                                value={currentCourseId}
                                 onChange={handleCourseChange}
                                 style={{ width: "100%" }}
                                 options={courses.map((course) => ({
@@ -218,53 +312,47 @@ export default function CourseSelector({ onStartQuiz }) {
                             />
                         </div>
 
-                        {/* Step 2: Topic */}
-                        <div>
-                            <Text strong style={{ display: "block", marginBottom: 8 }}>
-                                2. Select Topic
-                            </Text>
-                            <Select
-                                size="large"
-                                value={currentTopicIndex}
-                                onChange={handleTopicChange}
-                                style={{ width: "100%" }}
-                                options={(currentCourse.topics || []).map((topic, idx) => ({
-                                    value: idx,
-                                    label: `${topic.title} (${topic.questionCount} Q)`
-                                }))}
-                            />
-                        </div>
+                        {/* Step 2: Multi-Topic Selector (revealed after course selection) */}
+                        {currentCourse && (
+                            <>
+                                <div>
+                                    <Text strong style={{ display: "block", marginBottom: 8 }}>
+                                        2. Select Topics
+                                    </Text>
+                                    <Select
+                                        mode="multiple"
+                                        size="large"
+                                        allowClear
+                                        showSearch
+                                        maxTagCount="responsive"
+                                        optionFilterProp="searchLabel"
+                                        placeholder={`Choose topics from ${currentCourse.title}...`}
+                                        value={dropdownValue}
+                                        onChange={handleTopicsChange}
+                                        style={{ width: "100%" }}
+                                        options={topicDropdownOptions}
+                                    />
+                                </div>
 
-                        {/* Step 3: Single vs. Cumulative */}
-                        <div>
-                            <Text strong style={{ display: "block", marginBottom: 8 }}>
-                                3. Topic Scope
-                            </Text>
-                            <Radio.Group
-                                value={currentMode}
-                                onChange={(e) => setCurrentMode(e.target.value)}
-                                style={{ width: "100%" }}
-                            >
-                                <Space direction="vertical" style={{ width: "100%" }} size={8}>
-                                    <Radio value="single">Only this topic</Radio>
-                                    <Radio value="cumulative" disabled={currentTopicIndex === 0}>
-                                        This topic + all previous ({currentTopicIndex + 1})
-                                    </Radio>
-                                </Space>
-                            </Radio.Group>
-                        </div>
+                                <Button
+                                    size="large"
+                                    block
+                                    disabled={
+                                        selectedTopicIndices.length === 0 ||
+                                        currentPreviewCount === 0
+                                    }
+                                    onClick={handleAddTopics}
+                                >
+                                    {selectedTopicIndices.length === 0
+                                        ? "Select topics to add"
+                                        : `Add ${selectedTopicIndices.length} Topic${
+                                              selectedTopicIndices.length !== 1 ? "s" : ""
+                                          } (${currentPreviewCount} Q)`}
+                                </Button>
+                            </>
+                        )}
 
-                        {/* Add Course Action */}
-                        <Button
-                            size="large"
-                            block
-                            disabled={currentPreviewCount === 0}
-                            onClick={handleAddCourse}
-                        >
-                            Add Course ({currentPreviewCount} Q)
-                        </Button>
-
-                        {/* Added Courses List */}
+                        {/* Added Quiz Parts */}
                         <div>
                             <Divider style={{ margin: "4px 0 16px" }} />
                             <div
@@ -275,7 +363,7 @@ export default function CourseSelector({ onStartQuiz }) {
                                     marginBottom: 8
                                 }}
                             >
-                                <Text strong>Added Courses ({addedSelections.length})</Text>
+                                <Text strong>Added Quiz Parts ({addedSelections.length})</Text>
                                 <Tag color={canStartBigScreen ? "geekblue" : "default"}>
                                     {totalEstimatedQuestions} total question
                                     {totalEstimatedQuestions !== 1 ? "s" : ""}
@@ -285,23 +373,20 @@ export default function CourseSelector({ onStartQuiz }) {
                             {addedSelections.length === 0 ? (
                                 <Card size="small" style={{ background: "#fafafa" }}>
                                     <Text type="secondary">
-                                        No courses added yet. Click &ldquo;Add Course&rdquo; above to enable Start Big Screen.
+                                        No topics added yet. Select a course and topics above to build your quiz.
                                     </Text>
                                 </Card>
                             ) : (
                                 <Space direction="vertical" style={{ width: "100%" }} size="small">
                                     {addedSelections.map((sel, idx) => {
-                                        const course =
-                                            courses.find((c) => c.id === sel.courseId) ||
-                                            currentCourse;
+                                        const course = courses.find((c) => c.id === sel.courseId);
                                         const qCount = getTopicQuestionCount(
                                             course,
-                                            sel.topicIndex,
-                                            sel.mode
+                                            sel.topicIndex
                                         );
                                         return (
                                             <Card
-                                                key={`${sel.courseId}-${sel.topicIndex}-${sel.mode}-${idx}`}
+                                                key={`${sel.courseId}-${sel.topicIndex}-${idx}`}
                                                 size="small"
                                                 style={{ background: "#fafafa" }}
                                             >

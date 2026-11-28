@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Card, Space, NoticeBar, Tag } from "antd-mobile";
-import { CheckCircleOutline, CloseCircleOutline } from "antd-mobile-icons";
+import {
+  CheckCircleOutline,
+  CloseCircleOutline,
+  ExclamationCircleOutline
+} from "antd-mobile-icons";
 import { socket } from "../socket";
 
 const statusTagStyle = {
@@ -322,7 +326,7 @@ export default function StudentScreen({ roomId }) {
                     >
                       {isCorrectOption && (
                         <Tag color="success">
-                          <CheckCircleOutline /> Correct
+                           Correct Answer
                         </Tag>
                       )}
                       {isSelected && (
@@ -353,11 +357,32 @@ export default function StudentScreen({ roomId }) {
                       borderRadius: "6px",
                       fontSize: "13px",
                       color: isCorrectOption ? "#237804" : "#d48806",
-                      overflowWrap: "anywhere"
+                      overflowWrap: "anywhere",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 8
                     }}
                   >
-                    <strong>{isCorrectOption ? "Why right:" : "Why wrong:"}</strong>{" "}
-                    {opt.explanation}
+                    {isCorrectOption ? (
+                      <CheckCircleOutline
+                        aria-label="Explanation"
+                        style={{
+                          fontSize: 16,
+                          marginTop: 1,
+                          flexShrink: 0
+                        }}
+                      />
+                    ) : (
+                      <ExclamationCircleOutline
+                        aria-label="Explanation"
+                        style={{
+                          fontSize: 16,
+                          marginTop: 1,
+                          flexShrink: 0
+                        }}
+                      />
+                    )}
+                    <span>{opt.explanation}</span>
                   </div>
                 )}
               </div>

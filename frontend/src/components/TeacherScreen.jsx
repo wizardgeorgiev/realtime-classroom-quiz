@@ -409,7 +409,7 @@ export default function TeacherScreen({ roomId: initialRoomId, selections = [] }
                                         <Alert
                                             type={opt.isCorrect ? "success" : "warning"}
                                             showIcon
-                                            message={opt.isCorrect ? "Why it's right:" : "Why it's incorrect:"}
+                                            
                                             description={opt.explanation}
                                             style={{ marginTop: 12 }}
                                         />
